@@ -1,0 +1,13 @@
+build/
+build_san/
+build_tsan/
+build-san/
+demo_data/
+demo_data_threaded/
+test_data_replay/
+test_data_threaded/
+test_data_wal/
+data/
+*.o
+*.out
+.DS_Store
