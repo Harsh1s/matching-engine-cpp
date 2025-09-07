@@ -2,6 +2,7 @@
 
 #include <list>
 #include <map>
+#include <memory>
 #include <stdexcept>
 #include <string>
 #include <unordered_map>
@@ -27,6 +28,13 @@ struct RestingOrder {
     long long entered_sequence = 0;
 };
 
+// Single-writer price-time-priority matching engine for one or more symbols.
+//
+// Per-price-level FIFO is a std::list (insertion order == time priority).
+// Price levels live in an ordered std::map keyed by tick price:
+//   * best bid  = highest key  (std::prev(bids.end()))
+//   * best ask  = lowest key   (asks.begin())
+// A global index maps order_id -> its physical location for O(1) cancel.
 class MatchingEngine {
 public:
     using Level = std::list<RestingOrder>;
@@ -35,10 +43,11 @@ public:
         std::map<long long, Level> asks;
     };
 
+    MatchingEngine() = default;
+
     std::pair<std::vector<ExecEvent>, std::vector<Trade>> add(const AddOrder& cmd);
     std::vector<ExecEvent> cancel(const CancelOrder& cmd);
     std::pair<std::vector<ExecEvent>, std::vector<Trade>> replace(const ReplaceOrder& cmd);
-
     bool best_bid(const std::string& symbol, long long& out) const;
     bool best_ask(const std::string& symbol, long long& out) const;
 
@@ -57,6 +66,7 @@ private:
     Book& book_for(const std::string& symbol);
     const Book* find_book(const std::string& symbol) const;
     ExecEvent event(EventType type, const std::string& symbol, Payload payload);
+    long long available_volume(const Book& book, Side side, long long limit_price) const;
     void rest_order(Book& book, const AddOrder& cmd, long long remaining);
     void remove_resting(long long order_id);
     Trade build_trade(const AddOrder& active, const RestingOrder& passive, long long qty) const;
