@@ -9,6 +9,7 @@
 #include <utility>
 #include <vector>
 
+#include "json.hpp"
 #include "types.hpp"
 
 namespace me {
@@ -45,11 +46,18 @@ public:
 
     MatchingEngine() = default;
 
+    long long next_sequence() const { return sequence_ + 1; }
+
     std::pair<std::vector<ExecEvent>, std::vector<Trade>> add(const AddOrder& cmd);
     std::vector<ExecEvent> cancel(const CancelOrder& cmd);
     std::pair<std::vector<ExecEvent>, std::vector<Trade>> replace(const ReplaceOrder& cmd);
+    ExecEvent reject(const std::string& symbol, long long order_id, const std::string& reason);
+
     bool best_bid(const std::string& symbol, long long& out) const;
     bool best_ask(const std::string& symbol, long long& out) const;
+
+    Json snapshot() const;
+    void load_snapshot(const Json& snap);
 
 private:
     struct Location {
@@ -71,6 +79,8 @@ private:
     void remove_resting(long long order_id);
     Trade build_trade(const AddOrder& active, const RestingOrder& passive, long long qty) const;
     void check_not_crossed(const std::string& symbol, const Book& book) const;
+    Json serialize_side(const Book& book, Side side) const;
+    void restore_side(const std::string& symbol, const Json& levels, Side side);
 };
 
 }  // namespace me

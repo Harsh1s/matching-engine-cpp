@@ -244,5 +244,101 @@ bool MatchingEngine::best_ask(const std::string& symbol, long long& out) const {
     return true;
 }
 
+Json MatchingEngine::serialize_side(const Book& book, Side side) const {
+    Json levels = Json::make_array();
+    if (side == Side::Buy) {
+        for (auto it = book.bids.rbegin(); it != book.bids.rend(); ++it) {
+            Json level = Json::make_object();
+            level.set("price_ticks", Json::from_int(it->first));
+            Json orders = Json::make_array();
+            for (const auto& o : it->second) {
+                Json order = Json::make_object();
+                order.set("order_id", Json::from_int(o.order_id));
+                order.set("participant_id", Json::from_string(o.participant_id));
+                order.set("remaining", Json::from_int(o.remaining));
+                orders.push_back(std::move(order));
+            }
+            level.set("orders", std::move(orders));
+            levels.push_back(std::move(level));
+        }
+    } else {
+        for (const auto& kv : book.asks) {
+            Json level = Json::make_object();
+            level.set("price_ticks", Json::from_int(kv.first));
+            Json orders = Json::make_array();
+            for (const auto& o : kv.second) {
+                Json order = Json::make_object();
+                order.set("order_id", Json::from_int(o.order_id));
+                order.set("participant_id", Json::from_string(o.participant_id));
+                order.set("remaining", Json::from_int(o.remaining));
+                orders.push_back(std::move(order));
+            }
+            level.set("orders", std::move(orders));
+            levels.push_back(std::move(level));
+        }
+    }
+    return levels;
+}
+
+Json MatchingEngine::snapshot() const {
+    Json root = Json::make_object();
+    root.set("sequence", Json::from_int(sequence_));
+    Json books = Json::make_object();
+    for (const auto& kv : books_) {
+        Json book = Json::make_object();
+        book.set("bids", serialize_side(kv.second, Side::Buy));
+        book.set("asks", serialize_side(kv.second, Side::Sell));
+        books.set(kv.first, std::move(book));
+    }
+    root.set("books", std::move(books));
+    return root;
+}
+
+void MatchingEngine::restore_side(const std::string& symbol, const Json& levels, Side side) {
+    if (!levels.is_array()) return;
+    Book& book = book_for(symbol);
+    for (const auto& level : levels.array_value) {
+        const Json* price = level.find("price_ticks");
+        if (price == nullptr) continue;
+        const Json* orders = level.find("orders");
+        if (orders == nullptr || !orders->is_array()) continue;
+        for (const auto& o : orders->array_value) {
+            const Json* order_id = o.find("order_id");
+            const Json* participant = o.find("participant_id");
+            const Json* remaining = o.find("remaining");
+            if (order_id == nullptr || participant == nullptr || remaining == nullptr) continue;
+            AddOrder cmd;
+            cmd.symbol = symbol;
+            cmd.order_id = order_id->as_int();
+            cmd.participant_id = participant->as_string();
+            cmd.side = side;
+            cmd.price_ticks = price->as_int();
+            cmd.quantity = remaining->as_int();
+            cmd.time_in_force = TimeInForce::GTC;
+            rest_order(book, cmd, remaining->as_int());
+        }
+    }
+}
+
+void MatchingEngine::load_snapshot(const Json& snap) {
+    books_.clear();
+    index_.clear();
+    const Json* sequence = snap.find("sequence");
+    sequence_ = sequence ? sequence->as_int() : 0;
+    const Json* books = snap.find("books");
+    if (books == nullptr || !books->is_object()) {
+        throw MatchingEngineError("invalid snapshot: 'books' must be an object");
+    }
+    for (const auto& kv : books->object_value) {
+        const Json& book_data = kv.second;
+        if (!book_data.is_object()) {
+            throw MatchingEngineError("invalid snapshot: book data must be an object");
+        }
+        const Json* bids = book_data.find("bids");
+        const Json* asks = book_data.find("asks");
+        if (bids) restore_side(kv.first, *bids, Side::Buy);
+        if (asks) restore_side(kv.first, *asks, Side::Sell);
+    }
+}
 
 }  // namespace me

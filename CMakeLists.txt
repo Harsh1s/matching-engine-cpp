@@ -10,7 +10,10 @@ if(NOT CMAKE_BUILD_TYPE)
 endif()
 
 add_library(matching_engine
+    src/json.cpp
     src/matching_engine.cpp
+    src/protocol.cpp
+    src/recovery.cpp
 )
 target_include_directories(matching_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_options(matching_engine PRIVATE -Wall -Wextra)
