@@ -2,7 +2,6 @@
 
 #include <cstdint>
 #include <stdexcept>
-#include <variant>
 
 namespace me {
 
@@ -12,12 +11,6 @@ constexpr std::size_t kHeaderSize = 5 + 8 * 3;  // 5 x u8 + 3 x u64
 
 void put_u8(std::string& out, std::uint8_t v) { out.push_back(static_cast<char>(v)); }
 
-void put_u32(std::string& out, std::uint32_t v) {
-    for (int shift = 24; shift >= 0; shift -= 8) {
-        out.push_back(static_cast<char>((v >> shift) & 0xFF));
-    }
-}
-
 void put_u64(std::string& out, std::uint64_t v) {
     for (int shift = 56; shift >= 0; shift -= 8) {
         out.push_back(static_cast<char>((v >> shift) & 0xFF));
@@ -26,14 +19,6 @@ void put_u64(std::string& out, std::uint64_t v) {
 
 std::uint8_t get_u8(const std::string& buf, std::size_t offset) {
     return static_cast<std::uint8_t>(buf[offset]);
-}
-
-std::uint32_t get_u32(const std::string& buf, std::size_t offset) {
-    std::uint32_t v = 0;
-    for (int i = 0; i < 4; ++i) {
-        v = (v << 8) | static_cast<std::uint8_t>(buf[offset + i]);
-    }
-    return v;
 }
 
 std::uint64_t get_u64(const std::string& buf, std::size_t offset) {
