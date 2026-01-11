@@ -25,8 +25,12 @@ public:
 
     void append(const Json& command);
     std::vector<Json> replay_commands();
-        void save_snapshot(const Json& snapshot);
+    // Writes the snapshot atomically (temp file + rename + fsync) and truncates
+    // the WAL, so recovery is snapshot + the records appended after it.
+    void save_snapshot(const Json& snapshot);
     std::optional<Json> load_snapshot();
+    // Forces any buffered WAL records to the OS (and to disk under Fsync).
+    void flush();
     void close();
 
 private:
