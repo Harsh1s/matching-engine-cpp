@@ -9,6 +9,10 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release)
 endif()
 
+option(ENABLE_SANITIZERS "Build with address+undefined sanitizers" OFF)
+
+find_package(Threads REQUIRED)
+
 add_library(matching_engine
     src/json.cpp
     src/matching_engine.cpp
@@ -17,7 +21,12 @@ add_library(matching_engine
     src/sharded.cpp
 )
 target_include_directories(matching_engine PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(matching_engine PUBLIC Threads::Threads)
 target_compile_options(matching_engine PRIVATE -Wall -Wextra)
+if(ENABLE_SANITIZERS)
+    target_compile_options(matching_engine PRIVATE -fsanitize=address,undefined -g)
+    target_link_options(matching_engine PRIVATE -fsanitize=address,undefined)
+endif()
 
 add_executable(matching_engine_demo src/main.cpp)
 target_link_libraries(matching_engine_demo PRIVATE matching_engine)
