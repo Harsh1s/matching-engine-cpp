@@ -66,6 +66,7 @@ void MatchingEngine::remove_resting(long long order_id) {
 
 Trade MatchingEngine::build_trade(const AddOrder& active, const RestingOrder& passive, long long qty) const {
     if (qty <= 0) throw MatchingEngineError("non-positive trade quantity");
+    if (active.symbol != passive.symbol) throw MatchingEngineError("symbol mismatch");
     Trade trade;
     trade.symbol = active.symbol;
     trade.price_ticks = passive.price_ticks;
