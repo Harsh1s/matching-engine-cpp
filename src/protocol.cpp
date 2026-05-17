@@ -92,6 +92,7 @@ std::string pack_add_order(const AddOrder& cmd) {
 
 AddOrder unpack_add_order(const std::string& buf) {
     if (buf.size() < kHeaderSize) throw std::runtime_error("buffer too small");
+    if (buf.size() > 4096) throw std::runtime_error("buffer too large");
     std::uint8_t symbol_len = get_u8(buf, 0);
     std::uint8_t participant_len = get_u8(buf, 1);
     std::uint8_t side_raw = get_u8(buf, 2);
