@@ -1,0 +1,4 @@
+*.hpp linguist-language=C++
+*.cpp linguist-language=C++
+CMakeLists.txt linguist-language=CMake
+README.md linguist-documentation
