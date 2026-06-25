@@ -1,5 +1,7 @@
 # matching-engine-cpp
 
+**Author:** Harsh1s
+
 A deterministic, price-time-priority matching engine in modern C++17. This is a
 faithful C++ reimplementation of my Python matching engine, ported one-to-one so
 the same semantics run natively without the interpreter.
@@ -28,6 +30,49 @@ the same semantics run natively without the interpreter.
   **atomic snapshot** (temp file + `fsync` + `rename`), WAL truncation on
   snapshot, and snapshot-then-WAL recovery
 - Clean under AddressSanitizer, UndefinedBehaviorSanitizer, and ThreadSanitizer
+
+## Architecture
+
+```mermaid
+flowchart TB
+    subgraph ingress["Ingress"]
+        IN["Command source (codec / app)"]
+        SEQ["Sequencer + IngressRing"]
+    end
+
+    subgraph pipeline["Multi-core pipeline"]
+        SPSC_IN["SPSC inbound queues"]
+        W0["Shard 0 worker"]
+        W1["Shard 1 worker"]
+        WN["Shard N worker"]
+        SPSC_OUT["SPSC outbound queues"]
+    end
+
+    subgraph shard["Per-shard (single-threaded)"]
+        RISK["PreTradeRisk"]
+        ME["MatchingEngine"]
+        WAL["WalStore"]
+    end
+
+    OUT["Result consumer (events / trades)"]
+
+    IN --> SEQ
+    SEQ --> SPSC_IN
+    SPSC_IN --> W0 & W1 & WN
+    W0 & W1 & WN --> SPSC_OUT
+    W0 --> RISK --> ME --> WAL
+    SPSC_OUT --> OUT
+```
+
+Each symbol routes to exactly one shard. A single pinned worker thread drives
+each shard, so the matching core stays lock-free: synchronization is limited to
+the SPSC queues at stage boundaries. `submit()` is single-producer;
+`drain()` is single-consumer.
+
+> **Roadmap:** the ingress/egress edges are in-process today. A natural next step
+> is to front them with a network layer — a TCP order-entry gateway (with a
+> CRC-framed wire protocol) feeding the SPSC pipeline, and a UDP multicast feed
+> publishing the result stream — without touching the matching core.
 
 ## Design
 
