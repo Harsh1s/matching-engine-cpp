@@ -2,6 +2,9 @@
 
 #include <cstdint>
 #include <stdexcept>
+#include <variant>
+
+#include "checksum.hpp"
 
 namespace me {
 
@@ -11,6 +14,12 @@ constexpr std::size_t kHeaderSize = 5 + 8 * 3;  // 5 x u8 + 3 x u64
 
 void put_u8(std::string& out, std::uint8_t v) { out.push_back(static_cast<char>(v)); }
 
+void put_u32(std::string& out, std::uint32_t v) {
+    for (int shift = 24; shift >= 0; shift -= 8) {
+        out.push_back(static_cast<char>((v >> shift) & 0xFF));
+    }
+}
+
 void put_u64(std::string& out, std::uint64_t v) {
     for (int shift = 56; shift >= 0; shift -= 8) {
         out.push_back(static_cast<char>((v >> shift) & 0xFF));
@@ -19,6 +28,14 @@ void put_u64(std::string& out, std::uint64_t v) {
 
 std::uint8_t get_u8(const std::string& buf, std::size_t offset) {
     return static_cast<std::uint8_t>(buf[offset]);
+}
+
+std::uint32_t get_u32(const std::string& buf, std::size_t offset) {
+    std::uint32_t v = 0;
+    for (int i = 0; i < 4; ++i) {
+        v = (v << 8) | static_cast<std::uint8_t>(buf[offset + i]);
+    }
+    return v;
 }
 
 std::uint64_t get_u64(const std::string& buf, std::size_t offset) {
@@ -168,6 +185,58 @@ ReplaceOrder unpack_replace_order(const std::string& buf) {
     cmd.time_in_force = code_to_tif(tif_raw);
     cmd.symbol = buf.substr(head, symbol_len);
     return cmd;
+}
+
+std::string frame_message(MessageType type, const std::string& payload) {
+    std::string out;
+    out.reserve(1 + 4 + payload.size() + 4);
+    put_u8(out, static_cast<std::uint8_t>(type));
+    put_u32(out, static_cast<std::uint32_t>(payload.size()));
+    out += payload;
+    put_u32(out, crc32(payload));
+    return out;
+}
+
+bool parse_frame(const std::string& data, std::size_t& offset, MessageType& type, std::string& payload) {
+    if (data.size() - offset < 5) return false;
+    std::size_t p = offset;
+    std::uint8_t t = get_u8(data, p);
+    std::uint32_t len = get_u32(data, p + 1);
+    p += 5;
+    if (data.size() - p < static_cast<std::size_t>(len) + 4u) return false;
+    std::string body = data.substr(p, len);
+    p += len;
+    std::uint32_t crc = get_u32(data, p);
+    p += 4;
+    if (crc32(body) != crc) throw std::runtime_error("frame crc mismatch");
+    type = static_cast<MessageType>(t);
+    payload = std::move(body);
+    offset = p;
+    return true;
+}
+
+std::string encode_command(const Command& command) {
+    return std::visit(
+        [](const auto& c) -> std::string {
+            using C = std::decay_t<decltype(c)>;
+            if constexpr (std::is_same_v<C, AddOrder>) {
+                return frame_message(MessageType::Add, pack_add_order(c));
+            } else if constexpr (std::is_same_v<C, CancelOrder>) {
+                return frame_message(MessageType::Cancel, pack_cancel_order(c));
+            } else {
+                return frame_message(MessageType::Replace, pack_replace_order(c));
+            }
+        },
+        command);
+}
+
+Command decode_command(MessageType type, const std::string& payload) {
+    switch (type) {
+        case MessageType::Add: return unpack_add_order(payload);
+        case MessageType::Cancel: return unpack_cancel_order(payload);
+        case MessageType::Replace: return unpack_replace_order(payload);
+        default: throw std::runtime_error("unsupported command message type");
+    }
 }
 
 }  // namespace me

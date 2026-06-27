@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "json.hpp"
+#include "object_pool.hpp"
 #include "types.hpp"
 
 namespace me {
@@ -38,7 +39,7 @@ struct RestingOrder {
 // A global index maps order_id -> its physical location for O(1) cancel.
 class MatchingEngine {
 public:
-    using Level = std::list<RestingOrder>;
+    using Level = std::list<RestingOrder, PoolAllocator<RestingOrder>>;
     struct Book {
         std::map<long long, Level> bids;
         std::map<long long, Level> asks;
@@ -67,6 +68,7 @@ private:
         Level::iterator iter;
     };
 
+    std::shared_ptr<PoolResource> pool_ = std::make_shared<PoolResource>();
     std::unordered_map<std::string, Book> books_;
     long long sequence_ = 0;
     std::unordered_map<long long, Location> index_;

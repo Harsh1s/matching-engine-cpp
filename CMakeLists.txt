@@ -16,6 +16,7 @@ find_package(Threads REQUIRED)
 add_library(matching_engine
     src/json.cpp
     src/matching_engine.cpp
+    src/net.cpp
     src/protocol.cpp
     src/recovery.cpp
     src/sharded.cpp

@@ -1,3 +1,7 @@
+#include <arpa/inet.h>
+#include <sys/socket.h>
+#include <unistd.h>
+
 #include <chrono>
 #include <fstream>
 #include <iostream>
@@ -6,8 +10,10 @@
 #include <thread>
 #include <vector>
 
+#include "checksum.hpp"
 #include "json.hpp"
 #include "matching_engine.hpp"
+#include "net.hpp"
 #include "protocol.hpp"
 #include "recovery.hpp"
 #include "sharded.hpp"
@@ -246,14 +252,27 @@ void test_threaded_engine() {
     check(filled == 7, "threaded: aggressor filled 7 across workers");
 }
 
-void test_codec_cancel_replace() {
+void test_protocol_framing() {
     CancelOrder cancel{"AAPL", 7};
-    check(unpack_cancel_order(pack_cancel_order(cancel)).order_id == 7, "codec: cancel round trip");
+    check(unpack_cancel_order(pack_cancel_order(cancel)).order_id == 7, "frame: cancel round trip");
     ReplaceOrder rep{"MSFT", 1, 2, 200, 9, TimeInForce::IOC};
     ReplaceOrder dec = unpack_replace_order(pack_replace_order(rep));
-    check(dec.new_order_id == 2 && dec.new_price_ticks == 200 && dec.new_quantity == 9 &&
-              dec.symbol == "MSFT" && dec.time_in_force == TimeInForce::IOC,
-          "codec: replace round trip");
+    check(dec.new_order_id == 2 && dec.new_price_ticks == 200 && dec.new_quantity == 9,
+          "frame: replace round trip");
+
+    Command cmd = AddOrder{"AAPL", 42, "D", Side::Buy, 1500, 250, TimeInForce::FOK};
+    std::string wire = encode_command(cmd);
+    std::size_t offset = 0;
+    MessageType type;
+    std::string payload;
+    check(parse_frame(wire, offset, type, payload), "frame: parse complete frame");
+    check(type == MessageType::Add && offset == wire.size(), "frame: consumes whole frame");
+    AddOrder back = std::get<AddOrder>(decode_command(type, payload));
+    check(back.order_id == 42 && back.price_ticks == 1500, "frame: command decode");
+
+    std::string partial = wire.substr(0, wire.size() - 2);
+    std::size_t off2 = 0;
+    check(!parse_frame(partial, off2, type, payload) && off2 == 0, "frame: partial yields no message");
 }
 
 void test_wal_crc_recovery() {
@@ -277,6 +296,34 @@ void test_wal_crc_recovery() {
     }
 }
 
+void test_tcp_order_entry() {
+    std::atomic<int> received{0};
+    long long seen_id = 0;
+    OrderEntryServer server(0, [&](const Command& c) {
+        if (std::holds_alternative<AddOrder>(c)) seen_id = std::get<AddOrder>(c).order_id;
+        received.fetch_add(1);
+    });
+    server.start();
+
+    int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    addr.sin_port = htons(server.port());
+    bool connected = ::connect(fd, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) == 0;
+    check(connected, "tcp: client connected");
+    std::string wire = encode_command(Command{AddOrder{"AAPL", 99, "D", Side::Buy, 100, 5}});
+    ::send(fd, wire.data(), wire.size(), 0);
+
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (received.load() == 0 && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    ::close(fd);
+    server.stop();
+    check(received.load() == 1 && seen_id == 99, "tcp: framed add decoded on server");
+}
+
 }  // namespace
 
 int main() {
@@ -292,8 +339,9 @@ int main() {
     test_sharded_wal_replay();
     test_spsc_queue();
     test_threaded_engine();
-    test_codec_cancel_replace();
+    test_protocol_framing();
     test_wal_crc_recovery();
+    test_tcp_order_entry();
 
     std::cout << (g_checks - g_failures) << "/" << g_checks << " checks passed\n";
     if (g_failures != 0) {

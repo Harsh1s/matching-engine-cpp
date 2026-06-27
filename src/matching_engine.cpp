@@ -41,7 +41,7 @@ void MatchingEngine::rest_order(Book& book, const AddOrder& cmd, long long remai
     auto& side_map = (cmd.side == Side::Buy) ? book.bids : book.asks;
     auto level_it = side_map.find(cmd.price_ticks);
     if (level_it == side_map.end()) {
-level_it = side_map.emplace(cmd.price_ticks, Level{}).first;
+        level_it = side_map.emplace(cmd.price_ticks, Level(PoolAllocator<RestingOrder>(pool_))).first;
     }
     Level& level = level_it->second;
     RestingOrder order{cmd.symbol, cmd.order_id, cmd.participant_id, cmd.side,
